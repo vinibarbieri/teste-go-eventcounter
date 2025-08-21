@@ -41,7 +41,7 @@ func NewConsumer() *myConsumer {
 	}
 }
 
-// Created incrementa a count para um evento 'created' de um usuário específico.
+// Incrementa a count para um evento 'created' de um usuário específico.
 func (c *myConsumer) Created(ctx context.Context, uid string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -53,7 +53,7 @@ func (c *myConsumer) Created(ctx context.Context, uid string) error {
 	return nil
 }
 
-// Updated incrementa a count para um evento 'updated' de um usuário específico.
+// Incrementa a count para um evento 'updated' de um usuário específico.
 func (c *myConsumer) Updated(ctx context.Context, uid string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -64,7 +64,7 @@ func (c *myConsumer) Updated(ctx context.Context, uid string) error {
 	return nil
 }
 
-// Deleted incrementa a count para um evento 'deleted' de um usuário específico.
+// Incrementa a count para um evento 'deleted' de um usuário específico.
 func (c *myConsumer) Deleted(ctx context.Context, uid string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -75,20 +75,20 @@ func (c *myConsumer) Deleted(ctx context.Context, uid string) error {
 	return nil
 }
 
-// ShutdownMonitor gerencia um timer de inatividade. Se nenhum processamento ocorrer por 5s, ele dispara o cancelamento
+// Gerencia um timer de inatividade. Se nenhum processamento ocorrer por 5s, ele dispara o cancelamento
 type ShutdownMonitor struct {
 	timer  *time.Timer
 	mu     sync.Mutex
 	cancel context.CancelFunc
 }
 
-// Ele configura um timer inicial que irá disparar o shutdown se nenhuma atividade ocorrer.
+// Configura um timer inicial que irá disparar o shutdown se nenhuma atividade ocorrer.
 func NewShutdownMonitor(cancelFunc context.CancelFunc) *ShutdownMonitor {
 	sm := &ShutdownMonitor{
 		cancel: cancelFunc,
 	}
 	sm.timer = time.AfterFunc(5*time.Second, func() {
-		log.Println("=== Nenhuma mensagem processada por 5 segundos. Iniciando shutdown gracioso... ===")
+		log.Println("=== Nenhuma mensagem processada por 5 segundos. Iniciando shutdown... ===")
 		sm.cancel()
 	})
 	return sm
@@ -175,7 +175,7 @@ func main() {
 	updatedCh := make(chan ParsedMessage, channelBufferSize)
 	deletedCh := make(chan ParsedMessage, channelBufferSize)
 
-	// --- WaitGroup para Shutdown Gracioso ---
+	// --- WaitGroup para graceful shutdown ---
 	var wg sync.WaitGroup
 
 	// --- Iniciar Goroutines Listener para cada Tipo de Evento ---
@@ -348,7 +348,7 @@ func main() {
 	<-ctx.Done()
 
 	// --- Inicia Sequência de Shutdown ---
-	log.Println("Context principal cancelado. Iniciando shutdown gracioso...")
+	log.Println("Context principal cancelado. Iniciando shutdown...")
 
 	// Fecha todos os canais específicos de evento. Isso sinaliza às goroutines listener
 	time.Sleep(100 * time.Millisecond)

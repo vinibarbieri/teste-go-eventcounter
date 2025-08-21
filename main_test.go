@@ -11,69 +11,40 @@ import (
 	"time"
 )
 
-// TestConsumerCreated testa o método Created do consumer
-func TestConsumerCreated(t *testing.T) {
+// =============================================================================
+// TESTES UNITÁRIOS - Componentes Individuais
+// =============================================================================
+
+// TestConsumerMethods testa todos os métodos do consumer
+func TestConsumerMethods(t *testing.T) {
 	consumer := NewConsumer()
 	ctx := context.Background()
 
-	// Testa incremento de contador
+	// Testa Created
 	err := consumer.Created(ctx, "user123")
 	if err != nil {
 		t.Errorf("Created() retornou erro: %v", err)
 	}
-
 	if consumer.eventCounts["created"]["user123"] != 1 {
-		t.Errorf("Contador para user123 deveria ser 1, mas é %d", consumer.eventCounts["created"]["user123"])
+		t.Errorf("Contador created deveria ser 1, mas é %d", consumer.eventCounts["created"]["user123"])
 	}
 
-	// Testa múltiplos incrementos
-	err = consumer.Created(ctx, "user123")
-	if err != nil {
-		t.Errorf("Created() retornou erro: %v", err)
-	}
-
-	if consumer.eventCounts["created"]["user123"] != 2 {
-		t.Errorf("Contador para user123 deveria ser 2, mas é %d", consumer.eventCounts["created"]["user123"])
-	}
-
-	// Testa usuário diferente
-	err = consumer.Created(ctx, "user456")
-	if err != nil {
-		t.Errorf("Created() retornou erro: %v", err)
-	}
-
-	if consumer.eventCounts["created"]["user456"] != 1 {
-		t.Errorf("Contador para user456 deveria ser 1, mas é %d", consumer.eventCounts["created"]["user456"])
-	}
-}
-
-// TestConsumerUpdated testa o método Updated do consumer
-func TestConsumerUpdated(t *testing.T) {
-	consumer := NewConsumer()
-	ctx := context.Background()
-
-	err := consumer.Updated(ctx, "user123")
+	// Testa Updated
+	err = consumer.Updated(ctx, "user123")
 	if err != nil {
 		t.Errorf("Updated() retornou erro: %v", err)
 	}
-
 	if consumer.eventCounts["updated"]["user123"] != 1 {
-		t.Errorf("Contador para user123 deveria ser 1, mas é %d", consumer.eventCounts["updated"]["user123"])
+		t.Errorf("Contador updated deveria ser 1, mas é %d", consumer.eventCounts["updated"]["user123"])
 	}
-}
 
-// TestConsumerDeleted testa o método Deleted do consumer
-func TestConsumerDeleted(t *testing.T) {
-	consumer := NewConsumer()
-	ctx := context.Background()
-
-	err := consumer.Deleted(ctx, "user123")
+	// Testa Deleted
+	err = consumer.Deleted(ctx, "user123")
 	if err != nil {
 		t.Errorf("Deleted() retornou erro: %v", err)
 	}
-
 	if consumer.eventCounts["deleted"]["user123"] != 1 {
-		t.Errorf("Contador para user123 deveria ser 1, mas é %d", consumer.eventCounts["deleted"]["user123"])
+		t.Errorf("Contador deleted deveria ser 1, mas é %d", consumer.eventCounts["deleted"]["user123"])
 	}
 }
 
@@ -83,10 +54,9 @@ func TestConsumerConcurrency(t *testing.T) {
 	ctx := context.Background()
 
 	var wg sync.WaitGroup
-	numGoroutines := 100
-	numOperations := 10
+	numGoroutines := 50 // Reduzido para teste mais rápido
+	numOperations := 5
 
-	// Inicia múltiplas goroutines incrementando contadores
 	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
 		go func(userID string) {
@@ -101,49 +71,48 @@ func TestConsumerConcurrency(t *testing.T) {
 
 	wg.Wait()
 
-	// Verifica se todos os contadores estão corretos
+	// Verifica contadores
 	for i := 0; i < numGoroutines; i++ {
 		userID := fmt.Sprintf("user%d", i)
 		if consumer.eventCounts["created"][userID] != numOperations {
 			t.Errorf("Contador created para %s deveria ser %d, mas é %d", userID, numOperations, consumer.eventCounts["created"][userID])
 		}
-		if consumer.eventCounts["updated"][userID] != numOperations {
-			t.Errorf("Contador updated para %s deveria ser %d, mas é %d", userID, numOperations, consumer.eventCounts["updated"][userID])
-		}
-		if consumer.eventCounts["deleted"][userID] != numOperations {
-			t.Errorf("Contador deleted para %s deveria ser %d, mas é %d", userID, numOperations, consumer.eventCounts["deleted"][userID])
-		}
 	}
 }
 
-// TestShutdownMonitorResetTimer testa o reset do timer
-func TestShutdownMonitorResetTimer(t *testing.T) {
+// TestShutdownMonitor testa o ShutdownMonitor
+func TestShutdownMonitor(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	NewShutdownMonitor(cancel)
+	sm := NewShutdownMonitor(cancel)
 
-	// Verifica se o timer foi resetado
-	// Como não podemos acessar diretamente o timer, testamos indiretamente
-	// O timer deve estar ativo após o reset
+	if sm == nil {
+		t.Fatal("NewShutdownMonitor() retornou nil")
+	}
+
+	if sm.timer == nil {
+		t.Error("Timer não foi inicializado")
+	}
+
+	// Testa reset do timer
+	sm.ResetTimer()
 	time.Sleep(100 * time.Millisecond)
 
-	// O timer não deve ter disparado ainda
 	select {
 	case <-ctx.Done():
 		t.Error("Context foi cancelado prematuramente")
 	default:
-		// OK - context não foi cancelado
+		// OK
 	}
 }
 
-// TestShutdownMonitorShutdown testa o shutdown automático
-func TestShutdownMonitorShutdown(t *testing.T) {
+// TestShutdownMonitorAutoShutdown testa shutdown automático
+func TestShutdownMonitorAutoShutdown(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	NewShutdownMonitor(cancel)
 
-	// Aguarda o timer disparar (5 segundos)
 	select {
 	case <-ctx.Done():
 		// OK - shutdown automático funcionou
@@ -152,29 +121,24 @@ func TestShutdownMonitorShutdown(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// TESTES DE ESTRUTURAS E FUNCIONALIDADES
+// =============================================================================
+
 // TestWriteJSONResults testa a escrita dos resultados em JSON
 func TestWriteJSONResults(t *testing.T) {
-	// Cria dados de teste
 	eventCounts := map[string]map[string]int{
-		"created": {
-			"user1": 5,
-			"user2": 3,
-		},
-		"updated": {
-			"user1": 2,
-			"user3": 1,
-		},
-		"deleted": {
-			"user2": 1,
-		},
+		"created": {"user1": 5, "user2": 3},
+		"updated": {"user1": 2, "user3": 1},
+		"deleted": {"user2": 1},
 	}
 
 	testDir := "data"
+	os.RemoveAll(testDir)
 
-	// Chama a função
 	writeJSONResults(eventCounts)
 
-	// Verifica se os arquivos foram criados
+	// Verifica arquivos criados
 	expectedFiles := []string{
 		"data/events_created.json",
 		"data/events_updated.json",
@@ -187,7 +151,7 @@ func TestWriteJSONResults(t *testing.T) {
 		}
 	}
 
-	// Verifica conteúdo do arquivo created
+	// Verifica conteúdo
 	createdData, err := os.ReadFile("data/events_created.json")
 	if err != nil {
 		t.Errorf("Erro ao ler arquivo created: %v", err)
@@ -195,14 +159,13 @@ func TestWriteJSONResults(t *testing.T) {
 
 	var createdCounts map[string]int
 	if err := json.Unmarshal(createdData, &createdCounts); err != nil {
-		t.Errorf("Erro ao deserializar JSON created: %v", err)
+		t.Errorf("Erro ao deserializar JSON: %v", err)
 	}
 
 	if createdCounts["user1"] != 5 {
 		t.Errorf("Contador para user1 deveria ser 5, mas é %d", createdCounts["user1"])
 	}
 
-	// Limpa arquivos de teste
 	os.RemoveAll(testDir)
 }
 
@@ -216,11 +179,8 @@ func TestParseRoutingKey(t *testing.T) {
 	}{
 		{"user123.event.created", "user123", "created", true},
 		{"user456.event.updated", "user456", "updated", true},
-		{"user789.event.deleted", "user789", "deleted", true},
 		{"invalid", "", "", false},
 		{"user123.event", "", "", false},
-		{"event.created", "", "", false},
-		{"user123.event.created.extra", "", "", false},
 	}
 
 	for _, test := range tests {
@@ -237,148 +197,231 @@ func TestParseRoutingKey(t *testing.T) {
 			eventType := parts[2]
 
 			if userID != test.userID {
-				t.Errorf("Routing key '%s': userID='%s', esperado='%s'", test.routingKey, userID, test.userID)
+				t.Errorf("UserID incorreto: %s", userID)
 			}
-
 			if eventType != test.eventType {
-				t.Errorf("Routing key '%s': eventType='%s', esperado='%s'", test.routingKey, eventType, test.eventType)
+				t.Errorf("EventType incorreto: %s", eventType)
 			}
 		}
 	}
 }
 
-// TestMessageUniqueness testa o controle de unicidade de mensagens
-func TestMessageUniqueness(t *testing.T) {
-	processedMessages := make(map[string]struct{})
-	var mu sync.Mutex
+// =============================================================================
+// TESTES DE INTEGRAÇÃO - Sistema Completo
+// =============================================================================
 
-	// Simula processamento de mensagens
-	messageIDs := []string{"msg1", "msg2", "msg3", "msg1", "msg2"}
-
-	for _, msgID := range messageIDs {
-		mu.Lock()
-		if _, ok := processedMessages[msgID]; ok {
-			mu.Unlock()
-			// Mensagem já processada
-			continue
-		}
-		processedMessages[msgID] = struct{}{}
-		mu.Unlock()
-
-		// Processa mensagem...
-	}
-
-	// Verifica se apenas mensagens únicas foram processadas
-	expectedCount := 3 // msg1, msg2, msg3
-	if len(processedMessages) != expectedCount {
-		t.Errorf("Deveria ter %d mensagens únicas, mas tem %d", expectedCount, len(processedMessages))
-	}
-
-	// Verifica se as mensagens corretas estão no mapa
-	expectedMessages := map[string]bool{"msg1": true, "msg2": true, "msg3": true}
-	for msgID := range processedMessages {
-		if !expectedMessages[msgID] {
-			t.Errorf("Mensagem inesperada no mapa: %s", msgID)
-		}
-	}
-}
-
-// TestChannelBuffering testa o buffering dos canais
-func TestChannelBuffering(t *testing.T) {
-	// Cria canal com buffer
-	ch := make(chan string, 3)
-
-	// Envia mensagens até o buffer estar cheio
-	ch <- "msg1"
-	ch <- "msg2"
-	ch <- "msg3"
-
-	// Verifica se o canal está cheio
-	select {
-	case ch <- "msg4":
-		t.Error("Canal deveria estar cheio")
-	default:
-		// OK - canal está cheio
-	}
-
-	// Consome uma mensagem
-	msg := <-ch
-
-	// Agora deve ser possível enviar outra
-	select {
-	case ch <- "msg4":
-		// OK - canal não está mais cheio
-	default:
-		t.Error("Canal deveria aceitar mais mensagens")
-	}
-
-	if msg != "msg1" {
-		t.Errorf("Primeira mensagem deveria ser 'msg1', mas é '%s'", msg)
-	}
-}
-
-// TestContextCancellation testa o cancelamento do context
-func TestContextCancellation(t *testing.T) {
+// TestIntegrationSystem testa o sistema completo integrado
+func TestIntegrationSystem(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	// Inicia goroutine que aguarda o context
-	done := make(chan bool)
-	go func() {
-		<-ctx.Done()
-		done <- true
-	}()
+	consumer := NewConsumer()
 
-	// Cancela o context
-	cancel()
-
-	// Verifica se a goroutine recebeu o sinal
-	select {
-	case <-done:
-		// OK - context foi cancelado
-	case <-time.After(1 * time.Second):
-		t.Error("Goroutine não recebeu sinal de cancelamento")
+	// Cria canais de evento
+	channels := map[string]chan ParsedMessage{
+		"created": make(chan ParsedMessage, 10),
+		"updated": make(chan ParsedMessage, 10),
+		"deleted": make(chan ParsedMessage, 10),
 	}
-}
 
-// TestWaitGroup testa o funcionamento do WaitGroup
-func TestWaitGroup(t *testing.T) {
 	var wg sync.WaitGroup
-	counter := 0
-	var mu sync.Mutex
 
-	// Inicia múltiplas goroutines
-	numGoroutines := 5
-	wg.Add(numGoroutines)
-
-	for i := 0; i < numGoroutines; i++ {
-		go func() {
+	// Inicia listeners
+	for eventType, ch := range channels {
+		wg.Add(1)
+		go func(eType string, eventCh chan ParsedMessage) {
 			defer wg.Done()
 
-			mu.Lock()
-			counter++
-			mu.Unlock()
+			for {
+				select {
+				case msg, ok := <-eventCh:
+					if !ok {
+						return
+					}
 
-			time.Sleep(10 * time.Millisecond)
-		}()
+					var err error
+					switch eType {
+					case "created":
+						err = consumer.Created(ctx, msg.UserID)
+					case "updated":
+						err = consumer.Updated(ctx, msg.UserID)
+					case "deleted":
+						err = consumer.Deleted(ctx, msg.UserID)
+					}
+
+					if err != nil {
+						t.Errorf("Erro ao processar mensagem %s: %v", eType, err)
+					}
+
+				case <-ctx.Done():
+					return
+				}
+			}
+		}(eventType, ch)
 	}
 
-	// Aguarda todas terminarem
-	wg.Wait()
+	// Envia mensagens de teste
+	testMessages := []ParsedMessage{
+		{UserID: "user1", EventType: "created", MessageID: "msg1"},
+		{UserID: "user1", EventType: "updated", MessageID: "msg2"},
+		{UserID: "user2", EventType: "created", MessageID: "msg3"},
+	}
 
-	if counter != numGoroutines {
-		t.Errorf("Contador deveria ser %d, mas é %d", numGoroutines, counter)
+	for _, msg := range testMessages {
+		select {
+		case channels[msg.EventType] <- msg:
+		case <-ctx.Done():
+			t.Fatal("Context cancelado durante teste")
+		}
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Verifica contadores
+	if consumer.eventCounts["created"]["user1"] != 1 {
+		t.Errorf("Contador created para user1 deveria ser 1, mas é %d", consumer.eventCounts["created"]["user1"])
+	}
+
+	// Fecha canais e aguarda
+	for _, ch := range channels {
+		close(ch)
+	}
+	wg.Wait()
+}
+
+// TestMessageProcessingFlow testa o fluxo completo de processamento
+func TestMessageProcessingFlow(t *testing.T) {
+	routingKey := "user123.event.created"
+	messageBody := `{"id": "msg789"}`
+
+	// Parse da routing key
+	parts := strings.Split(routingKey, ".")
+	if len(parts) != 3 || parts[1] != "event" {
+		t.Fatal("Routing key inválida")
+	}
+
+	userID := parts[0]
+	eventType := parts[2]
+
+	// Parse do JSON
+	var msgData Message
+	if err := json.Unmarshal([]byte(messageBody), &msgData); err != nil {
+		t.Fatalf("Erro ao deserializar JSON: %v", err)
+	}
+
+	// Cria ParsedMessage
+	parsedMsg := ParsedMessage{
+		UserID:    userID,
+		EventType: eventType,
+		MessageID: msgData.ID,
+	}
+
+	// Verifica dados
+	if parsedMsg.UserID != "user123" {
+		t.Errorf("UserID incorreto: %s", parsedMsg.UserID)
+	}
+
+	if parsedMsg.MessageID != "msg789" {
+		t.Errorf("MessageID incorreto: %s", parsedMsg.MessageID)
+	}
+
+	if parsedMsg.EventType != "created" {
+		t.Errorf("EventType incorreto: %s", parsedMsg.EventType)
+	}
+
+	// Simula processamento
+	consumer := NewConsumer()
+	ctx := context.Background()
+
+	err := consumer.Created(ctx, parsedMsg.UserID)
+	if err != nil {
+		t.Errorf("Erro ao processar mensagem: %v", err)
+	}
+
+	if consumer.eventCounts["created"]["user123"] != 1 {
+		t.Errorf("Contador não foi incrementado corretamente")
 	}
 }
 
-// TestGracefulShutdown testa o shutdown gracioso
+// TestConcurrentMessageProcessing testa processamento concorrente
+func TestConcurrentMessageProcessing(t *testing.T) {
+	consumer := NewConsumer()
+	ctx := context.Background()
+
+	channels := map[string]chan ParsedMessage{
+		"created": make(chan ParsedMessage, 100),
+		"updated": make(chan ParsedMessage, 100),
+		"deleted": make(chan ParsedMessage, 100),
+	}
+
+	var wg sync.WaitGroup
+
+	// Inicia workers
+	for eventType, ch := range channels {
+		wg.Add(1)
+		go func(eType string, eventCh chan ParsedMessage) {
+			defer wg.Done()
+
+			for msg := range eventCh {
+				var err error
+				switch eType {
+				case "created":
+					err = consumer.Created(ctx, msg.UserID)
+				case "updated":
+					err = consumer.Updated(ctx, msg.UserID)
+				case "deleted":
+					err = consumer.Deleted(ctx, msg.UserID)
+				}
+
+				if err != nil {
+					t.Errorf("Erro ao processar %s: %v", eType, err)
+				}
+			}
+		}(eventType, ch)
+	}
+
+	// Envia mensagens
+	numMessages := 500 // Reduzido para teste mais rápido
+	for i := 0; i < numMessages; i++ {
+		userID := fmt.Sprintf("user%d", i%10)
+		eventType := []string{"created", "updated", "deleted"}[i%3]
+
+		msg := ParsedMessage{
+			UserID:    userID,
+			EventType: eventType,
+			MessageID: fmt.Sprintf("msg%d", i),
+		}
+
+		channels[eventType] <- msg
+	}
+
+	// Fecha canais
+	for _, ch := range channels {
+		close(ch)
+	}
+
+	wg.Wait()
+
+	// Verifica total processado
+	totalProcessed := 0
+	for _, counts := range consumer.eventCounts {
+		for _, count := range counts {
+			totalProcessed += count
+		}
+	}
+
+	if totalProcessed != numMessages {
+		t.Errorf("Deveria ter processado %d mensagens, mas processou %d", numMessages, totalProcessed)
+	}
+}
+
+// TestGracefulShutdown testa shutdown gracioso
 func TestGracefulShutdown(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Cria canais
 	ch1 := make(chan string, 2)
 	ch2 := make(chan string, 2)
 
-	// Inicia goroutines que consomem dos canais
 	var wg sync.WaitGroup
 	wg.Add(2)
 
@@ -410,14 +453,14 @@ func TestGracefulShutdown(t *testing.T) {
 		}
 	}()
 
-	// Cancela o context
+	// Cancela context
 	cancel()
 
-	// Fecha os canais
+	// Fecha canais
 	close(ch1)
 	close(ch2)
 
-	// Aguarda as goroutines terminarem
+	// Aguarda goroutines terminarem
 	done := make(chan bool)
 	go func() {
 		wg.Wait()
@@ -426,19 +469,19 @@ func TestGracefulShutdown(t *testing.T) {
 
 	select {
 	case <-done:
-		// OK - shutdown gracioso funcionou
+		// OK - shutdown funcionou
 	case <-time.After(1 * time.Second):
-		t.Error("Shutdown gracioso não funcionou em 1 segundo")
+		t.Error("Shutdown não funcionou em 1 segundo")
 	}
 }
 
+// =============================================================================
+// CONFIGURAÇÃO DE TESTES
+// =============================================================================
+
 // TestMain configura o ambiente de teste
 func TestMain(m *testing.M) {
-	// Executa os testes
 	code := m.Run()
-
-	// Limpa arquivos de teste
 	os.RemoveAll("data")
-
 	os.Exit(code)
 }

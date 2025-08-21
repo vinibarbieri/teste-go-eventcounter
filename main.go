@@ -114,6 +114,11 @@ func (sm *ShutdownMonitor) ResetTimer() {
 func writeJSONResults(eventCounts map[string]map[string]int) {
 	log.Println("Escrevendo resultados em arquivos JSON...")
 
+	if _, err := os.Stat("data"); os.IsNotExist(err) {
+		os.Mkdir("data", 0755)
+		log.Println("Diretório data criado")
+	}
+
 	for eventType, users := range eventCounts {
 		filename := fmt.Sprintf("data/events_%s.json", eventType)
 		file, err := os.Create(filename)
@@ -152,8 +157,6 @@ func main() {
 	log.Printf("Conectando ao RabbitMQ em %s, Exchange: %s, Queue: %s", rabbitMQURL, rabbitMQExchange, rabbitMQQueue)
 
 	// --- Configuração do Context para Cancelamento ---
-	// Um context.Context é usado para gerenciar o ciclo de vida das goroutines.
-	// A função cancel será chamada para sinalizar todas as goroutines para encerrar.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -161,29 +164,21 @@ func main() {
 	shutdownMonitor := NewShutdownMonitor(cancel)
 
 	// --- Configuração do Consumer e Estado Compartilhado para Unicidade de Mensagens ---
-	// A instância `myConsumer` irá agregar contagens de eventos.
 	consumer := NewConsumer()
-	// O mapa `processedMessages` armazena IDs de mensagens que já foram processadas
-	// para garantir que cada mensagem única seja contada apenas uma vez.
+
 	processedMessages := make(map[string]struct{})
-	var processedMu sync.Mutex // Mutex para proteger acesso concorrente ao `processedMessages`
+	var processedMu sync.Mutex
 
 	// --- Configuração dos Canais para Tipos de Evento ---
-	// As mensagens serão despachadas para estes canais com buffer baseado em seu tipo.
-	// O buffer previne que o consumidor RabbitMQ bloqueie se os listeners de evento estiverem momentaneamente ocupados.
-	const channelBufferSize = 100 // Tamanho do buffer para cada canal
+	const channelBufferSize = 100
 	createdCh := make(chan ParsedMessage, channelBufferSize)
 	updatedCh := make(chan ParsedMessage, channelBufferSize)
 	deletedCh := make(chan ParsedMessage, channelBufferSize)
 
 	// --- WaitGroup para Shutdown Gracioso ---
-	// Um WaitGroup é usado para aguardar todas as goroutines worker completarem suas tarefas
-	// antes da função main sair.
 	var wg sync.WaitGroup
 
 	// --- Iniciar Goroutines Listener para cada Tipo de Evento ---
-	// Estas goroutines atuam como consumidores para os canais específicos de evento.
-	// Elas chamam o método apropriado do `consumer` e reiniciam o timer de inatividade.
 	eventChannels := map[string]chan ParsedMessage{
 		"created": createdCh,
 		"updated": updatedCh,
@@ -191,9 +186,9 @@ func main() {
 	}
 
 	for eventType, ch := range eventChannels {
-		wg.Add(1) // Incrementa contador do WaitGroup para cada goroutine listener
+		wg.Add(1)
 		go func(eType string, eventCh chan ParsedMessage) {
-			defer wg.Done() // Decrementa contador do WaitGroup quando a goroutine sair
+			defer wg.Done()
 			log.Printf("Iniciada goroutine listener de evento %s.", eType)
 			for {
 				select {
@@ -230,24 +225,22 @@ func main() {
 	}
 
 	// --- Iniciar Goroutine Consumidor RabbitMQ ---
-	// Esta goroutine conecta ao RabbitMQ, busca mensagens,
-	// executa verificações de unicidade e despacha mensagens para os canais apropriados de evento.
-	wg.Add(1) // Incrementa contador do WaitGroup para a goroutine consumidor RabbitMQ
+	wg.Add(1)
 	go func() {
-		defer wg.Done() // Decrementa contador do WaitGroup quando a goroutine sair
+		defer wg.Done()
 		log.Println("Iniciada goroutine consumidor RabbitMQ.")
 
 		// Estabelece conexão com RabbitMQ
 		conn, err := amqp.Dial(rabbitMQURL)
 		if err != nil {
-			log.Fatalf("Falha ao conectar ao RabbitMQ: %v", err) // Erro fatal se a conexão falhar
+			log.Fatalf("Falha ao conectar ao RabbitMQ: %v", err)
 		}
 		defer conn.Close() // Garante que a conexão seja fechada quando a goroutine sair
 
 		// Abre um canal dentro da conexão
 		ch, err := conn.Channel()
 		if err != nil {
-			log.Fatalf("Falha ao abrir um canal: %v", err) // Erro fatal se o canal falhar
+			log.Fatalf("Falha ao abrir um canal: %v", err)
 		}
 		defer ch.Close() // Garante que o canal seja fechado
 
@@ -265,7 +258,6 @@ func main() {
 		}
 
 		// Vincula a fila ao exchange.
-		// O padrão de routing key "*.event.*" corresponde a routing keys como "user123.event.created".
 		err = ch.QueueBind(
 			q.Name,           // nome da fila
 			"*.event.*",      // padrão de routing key
@@ -281,10 +273,10 @@ func main() {
 		msgs, err := ch.Consume(
 			q.Name, // nome da fila
 			"",     // tag do consumidor (string vazia gera uma tag única)
-			true,   // autoAck: true significa que mensagens são reconhecidas automaticamente após entrega
+			false,  // autoAck: false significa que as mensagens não serão reconhecidas automaticamente
 			false,  // exclusive: false permite múltiplos consumidores
 			false,  // noLocal: false significa que mensagens publicadas por esta conexão podem ser consumidas por ela
-			false,  // noWait
+			false,  // noWait: false significa aguardar confirmação do servidor
 			nil,    // argumentos
 		)
 		if err != nil {
@@ -294,13 +286,13 @@ func main() {
 		// Loop infinitamente para receber mensagens ou responder ao cancelamento do context
 		for {
 			select {
-			case d := <-msgs: // Uma nova mensagem chegou do RabbitMQ
-				// Analisa a routing key para extrair UserID e EventType
-				// Formato esperado: <user_id>.event.<event_type>
+			case d := <-msgs:
+				// Pegando o routing key: <user_id>.event.<event_type>
 				parts := strings.Split(d.RoutingKey, ".")
 				if len(parts) != 3 || parts[1] != "event" {
 					log.Printf("Pulando mensagem com formato de routing key inválido: %s", d.RoutingKey)
-					continue // Pula para a próxima mensagem se a routing key estiver malformada
+					d.Ack(false) // ACK mensagens com formato inválido (não reenviar)
+					continue
 				}
 				userID := parts[0]
 				eventType := parts[2]
@@ -309,18 +301,20 @@ func main() {
 				var msgData Message
 				if err := json.Unmarshal(d.Body, &msgData); err != nil {
 					log.Printf("Erro ao deserializar corpo da mensagem: %v, Corpo: %s", err, d.Body)
-					continue // Pula se o corpo da mensagem não puder ser analisado
+					d.Nack(false, false) // NACK sem reenviar mensagens malformadas
+					continue
 				}
 
 				// Verifica unicidade da mensagem usando o mapa `processedMessages`
-				processedMu.Lock() // Adquire lock para proteger `processedMessages`
+				processedMu.Lock()
 				if _, ok := processedMessages[msgData.ID]; ok {
-					processedMu.Unlock() // Libera lock
-					// log.Printf("ID da mensagem %s já processado. Pulando.", msgData.ID)
-					continue // Mensagem já processada, pula
+					processedMu.Unlock()
+					log.Printf("ID da mensagem %s já processado. Pulando.", msgData.ID)
+					d.Ack(false) // ACK mensagens duplicadas (não reenviar)
+					continue
 				}
 				processedMessages[msgData.ID] = struct{}{} // Marca mensagem como processada
-				processedMu.Unlock()                       // Libera lock
+				processedMu.Unlock()
 
 				// Cria uma struct ParsedMessage para despacho interno
 				parsedMsg := ParsedMessage{
@@ -333,13 +327,14 @@ func main() {
 				select {
 				case eventChannels[eventType] <- parsedMsg:
 					// Mensagem despachada com sucesso.
+					d.Ack(false) // ACK após despacho bem-sucedido
 				case <-ctx.Done(): // Context cancelado, sinal para sair
 					log.Println("Context cancelado durante despacho da mensagem. Parando consumidor RabbitMQ.")
-					return // Context cancelado, para de consumir
+					d.Nack(false, true) // NACK com reenvio para processamento posterior
+					return              // Context cancelado, para de consumir
 				default:
-					// Este caso é atingido se o canal alvo estiver cheio e não puder aceitar a mensagem imediatamente.
-					// Com buffer adequado e velocidade do consumidor, isso idealmente não deveria acontecer.
 					log.Printf("Canal para %s está cheio, descartando mensagem %s.", eventType, msgData.ID)
+					d.Nack(false, true) // NACK com reenvio para processamento posterior
 				}
 
 			case <-ctx.Done(): // Context principal foi cancelado
@@ -350,29 +345,22 @@ func main() {
 	}()
 
 	// --- Goroutine Principal aguarda cancelamento ---
-	// A goroutine principal irá bloquear aqui até que o context seja cancelado,
-	// que será disparado pelo ShutdownMonitor após inatividade.
 	<-ctx.Done()
 
 	// --- Inicia Sequência de Shutdown ---
 	log.Println("Context principal cancelado. Iniciando shutdown gracioso...")
 
 	// Fecha todos os canais específicos de evento. Isso sinaliza às goroutines listener
-	// para sair de seus loops `for range`, já que nenhuma mensagem será enviada a elas.
-	// Um pequeno delay é adicionado para permitir que quaisquer mensagens de último minuto sejam processadas
-	// antes de fechar os canais.
 	time.Sleep(100 * time.Millisecond)
 	close(createdCh)
 	close(updatedCh)
 	close(deletedCh)
 
-	// Aguarda todas as goroutines (consumidor RabbitMQ e listeners de evento) terminarem.
 	log.Println("Aguardando todas as goroutines terminarem...")
 	wg.Wait() // Bloqueia até o contador do WaitGroup ser zero
 	log.Println("Todas as goroutines terminaram.")
 
 	// --- Escreve Resultados em Arquivos JSON ---
-	// Uma vez que todo o processamento estiver feito, escreve as contagens agregadas nos arquivos.
 	writeJSONResults(consumer.eventCounts)
 
 	log.Println("Serviço encerrado com sucesso.")

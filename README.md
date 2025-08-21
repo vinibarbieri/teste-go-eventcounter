@@ -1,62 +1,156 @@
-# Teste técnico
+# Sistema de Contagem de Eventos
 
-## Caso eventcounter
+Sistema em Go para processar mensagens do RabbitMQ e contar eventos por usuário, com shutdown automático e persistência de dados.
 
-## Escopo
+## 🚀 Como Funciona
 
-Com a implementação de um sistema orientado a eventos, houve a necessidade de criar um contador de eventos por usuário na empresa X. Para resolver o problema a equipe de desenvolvimento bolou a seguinte solução:
-
----
-Um micro serviço escrito em Go roda periodicamente buscando todas as mensagens disponíveis na fila Y. Para cada mensagem na fila é extraído o ID do usuário, o ID da mensagem e o tipo do evento. Se a mensagem não tiver sido processada ainda, a mesma deve ser enviada para um canal baseado no tipo e processada em concorrência. O consumidor do canal deve adicionar 1 ao contador do usuário baseado no tipo de evento por cada mensagem única recebida. Após 5 segundos do processamento da última mensagem o serviço deve desligar automaticamente ao finalizar todos os processamentos e escrever a contagem em arquivos json separados por tipo, identificando o usuário e quantas mensagens o mesmo recebeu.
-
----
-
-Sua camada de serviço deve seguir o padrão da interface `Consumer` declarada no diretório `pkg`.
-```go
-type Consumer interface {
-	Created(ctx context.Context, uid string) error
-	Updated(ctx context.Context, uid string) error
-	Deleted(ctx context.Context, uid string) error
-}
+### Arquitetura
+```
+RabbitMQ → Consumer → Canais Buffer → Listeners → Contadores → JSON
 ```
 
-### Mensagem
+### Fluxo Principal
+1. **Consome mensagens** do RabbitMQ com routing key `*.event.*`
+2. **Valida e despacha** para canais específicos (created/updated/deleted)
+3. **Processa em paralelo** com 3 goroutines listener
+4. **Incrementa contadores** thread-safe por usuário e tipo de evento
+5. **Shutdown automático** após 5 segundos de inatividade
+6. **Salva resultados** em arquivos JSON
 
-A messagem enviada no RabbitMQ tem o seguinte conteudo:
-```json
-{
-    "id": "id unico da mensagem"
-}
-```
+## 📋 Pré-requisitos
 
-O exchange e a url são dinâmicos e devem ser passados por parâmetro ou variavel de ambiente.<br/>
-A routing key é composta por: `<id do usuario>.event.<tipo do evento>`<br/>
-A fila se chama `eventcountertest`<br/>
+- Go 1.19+
+- RabbitMQ rodando
+- Variáveis de ambiente configuradas
+- Make
 
-## Critérios de avaliação:
+## ⚙️ Configuração
 
-- Compreensão do problema
-- Uso de canais
-- Uso de goroutines
-- Uso do pacote sync
-- Uso do contexto
+### Ambiente RabbitMQ
+Este repositório **apenas consome mensagens**. Para subir o RabbitMQ e enviar mensagens de teste, você precisa executar os comandos no repositório `teste-go-eventcounter` da Fluid.
 
-### Extras
+#### Comandos do Ambiente (Makefile)
+**⚠️ IMPORTANTE: Execute estes comandos no repositório `teste-go-eventcounter` da Fluid, NÃO neste repositório.**
 
-- Testes
-
-## Subindo ambiente
-
-Para subir o ambiente (RabbitMQ) utilize o comando:
-```shell
+```bash
+# No repositório teste-go-eventcounter da Fluid:
 make env-up
-```
-Para subir gerar o exchange, a fila e publicar 100 mensagens de teste utilize o comando:
-```shell
 make generator-publish
-```
-Para dropar o ambiente utilize o comando:
-```shell
 make env-down
 ```
-Para alterar a porta e o exchange utilizado pelo container no rabbit altere as primeiras linhas do makefile.
+
+### Variáveis de Ambiente
+```bash
+# .env
+RABBITMQ_URL=amqp://guest:guest@localhost:5672/
+RABBITMQ_EXCHANGE=eventcountertest
+```
+
+### Estrutura de Mensagens
+```json
+{
+  "id": "unique_message_id"
+}
+```
+
+### Routing Keys
+- `<id do usuario>.event.<tipo do evento>`
+
+## 🏃‍♂️ Como Executar
+
+### 1. Preparar Ambiente
+```bash
+# No repositório teste-go-eventcounter da Fluid:
+make env-up
+make generator-publish
+```
+
+### 2. Executar o Consumer
+```bash
+# Neste repositório:
+go mod tidy
+go run
+```
+
+## 🧪 Testes
+
+### Executar Todos os Testes
+```bash
+go test -v
+```
+
+## 📊 Saída
+
+### Arquivos Gerados
+- `data/events_created.json` - Contadores de eventos created
+- `data/events_updated.json` - Contadores de eventos updated  
+- `data/events_deleted.json` - Contadores de eventos deleted
+
+### Formato dos Arquivos
+```json
+{
+  "user123": 5,
+  "user456": 3,
+  "user789": 1
+}
+```
+
+## 🔧 Características Técnicas
+
+### Concorrência
+- **3 goroutines listener** para cada tipo de evento
+- **Canais com buffer** de 100 mensagens
+- **Mutex para thread safety** nos contadores
+
+### Confiabilidade
+- **ACK manual** para controle de mensagens
+- **Controle de duplicatas** por MessageID
+- **Graceful shutdown** com cleanup de recursos
+
+### Monitoramento
+- **Timer de inatividade** para shutdown automático
+- **Logs detalhados** de operações
+
+## 🏗️ Estrutura do Código
+
+```
+├── main.go                # Programa principal
+├── main_test.go           # Testes unitários e integração
+├── go.mod                 # Dependências Go
+├── .env                   # Configurações
+├── data/                  # Diretório de saída (criado automaticamente)
+└── README.md              # Esta documentação
+```
+
+## 📈 Performance
+
+- **Processamento paralelo** de múltiplos tipos de evento
+- **Buffer inteligente** para picos de tráfego
+- **Shutdown automático** para economia de recursos
+
+## 🚀 Fluxo de Desenvolvimento
+
+1. **Clone ambos os repositórios**:
+   - Este repositório (consumer)
+   - `teste-go-eventcounter` da Fluid (infraestrutura)
+2. **No repositório da Fluid**: Suba o ambiente com `make env-up`
+3. **No repositório da Fluid**: Gere mensagens com `make generator-publish`
+4. **Neste repositório**: Execute o consumer com `go run`
+5. **Monitore os logs** e arquivos de saída
+6. **No repositório da Fluid**: Pare o ambiente com `make env-down` quando terminar
+
+## 🚨 Tratamento de Erros
+
+- **Mensagens malformadas**: NACK sem reenvio
+- **Mensagens duplicadas**: ACK e ignora
+- **Canais cheios**: NACK com reenvio
+- **Falhas de conexão**: Log e retry automático
+
+## 🔄 Shutdown
+
+1. **Timer expira** após 5s de inatividade
+2. **Context é cancelado** automaticamente
+3. **Todas as goroutines** recebem sinal de parada
+4. **Canais são fechados** de forma organizada
+5. **Resultados são salvos** antes de encerrar
+6. **Sistema sai limpo** sem perda de dados

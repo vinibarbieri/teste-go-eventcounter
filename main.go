@@ -88,7 +88,7 @@ func NewShutdownMonitor(cancelFunc context.CancelFunc) *ShutdownMonitor {
 		cancel: cancelFunc,
 	}
 	sm.timer = time.AfterFunc(5*time.Second, func() {
-		log.Println("Nenhuma mensagem processada por 5 segundos. Iniciando shutdown gracioso...")
+		log.Println("=== Nenhuma mensagem processada por 5 segundos. Iniciando shutdown gracioso... ===")
 		sm.cancel()
 	})
 	return sm
@@ -112,7 +112,7 @@ func (sm *ShutdownMonitor) ResetTimer() {
 // writeJSONResults itera através das contagens de eventos coletadas e
 // as escreve em arquivos JSON separados, um para cada tipo de evento.
 func writeJSONResults(eventCounts map[string]map[string]int) {
-	log.Println("Escrevendo resultados em arquivos JSON...")
+	log.Println("=== Escrevendo resultados em arquivos JSON ===")
 
 	if _, err := os.Stat("data"); os.IsNotExist(err) {
 		os.Mkdir("data", 0755)
@@ -154,7 +154,7 @@ func main() {
 	}
 	rabbitMQQueue := "eventcountertest"
 
-	log.Printf("Conectando ao RabbitMQ em %s, Exchange: %s, Queue: %s", rabbitMQURL, rabbitMQExchange, rabbitMQQueue)
+	log.Printf("=== Conectando ao RabbitMQ em %s, Exchange: %s, Queue: %s ===", rabbitMQURL, rabbitMQExchange, rabbitMQQueue)
 
 	// --- Configuração do Context para Cancelamento ---
 	ctx, cancel := context.WithCancel(context.Background())
@@ -363,5 +363,5 @@ func main() {
 	// --- Escreve Resultados em Arquivos JSON ---
 	writeJSONResults(consumer.eventCounts)
 
-	log.Println("Serviço encerrado com sucesso.")
+	log.Println("== Serviço encerrado com sucesso. ==")
 }
